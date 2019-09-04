@@ -84,6 +84,13 @@ def extract_macro_image(img):
           label_rgb = img_rgba["label"].convert("RGB");
        if "thumbnail" in img_rgba:
           thumb_rgb = img_rgba["thumbnail"].convert("RGB");
+       else:
+          img_w = img.level_dimensions[img.level_count-1][0]
+          img_h = img.level_dimensions[img.level_count-1][1]
+          div_v = float(256/img_w)
+          img_w = int(img_w*div_v)
+          img_h = int(img_h*div_v)
+          thumb_rgb = img.get_thumbnail((img_w,img_h)).convert("RGB"); 
     return macro_rgb,label_rgb,thumb_rgb;
 
 def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname):
@@ -109,19 +116,26 @@ def main(argv):
     out_json = open(out_folder + out_metadata_json,"w");
     out_csv  = open(out_folder + out_metadata_csv,"w");
 
-    csv_reader = csv.reader(inp_file,delimiter=',')
-    next(csv_reader) # skip header for now
+    csv_reader = csv.reader(inp_file, delimiter=',')
+    h_row = next(csv_reader)
+    path_i = -1 
+    for i in range(len(h_row)):
+        if h_row[i]=='path':
+           path_i = i
+    if path_i==-1:
+        print("ERROR: Header is missing in file: ",inp_manifest)
+        sys.exit(1);
     csv_writer = csv.writer(out_csv,delimiter=',') 
-    for row in csv_reader:
-        fname = inp_folder+row[0];
+    for file_row in csv_reader:
+        fname = inp_folder+file_row[path_i];
         print("Processing: ",fname)
 
         # Extract metadata from image
         img_json,img = openslide_metadata(fname);
-        img_json["filename"] = row[0]; 
+        img_json["filename"] = file_row[path_i]; 
 
         # output to csv file
-        csv_writer.writerow([row[0],img_json["error"]]);
+        csv_writer.writerow([file_row[path_i],img_json["error"]]);
 
         # output to json file
         json.dump(img_json,out_json);
@@ -130,7 +144,7 @@ def main(argv):
         # If file is OK, extract macro image and write it out
         if img_json["error"]=="no-error":
            macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
-           write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname);
+           write_macro_image(macro_rgb,label_rgb,thumb_rgb,file_row[path_i]);
 
     inp_file.close();
     out_json.close();

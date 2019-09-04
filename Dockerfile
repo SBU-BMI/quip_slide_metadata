@@ -2,7 +2,7 @@ FROM python:3.6.9-slim
 MAINTAINER Tahsin Kurc
 
 RUN apt-get -q update && \
-	apt-get install -y openslide-tools build-essential python3-openslide && \
+	apt-get install -y openslide-tools build-essential && \
 	pip install openslide-python 
 
 WORKDIR /home
