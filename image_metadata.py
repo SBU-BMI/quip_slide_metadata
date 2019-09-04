@@ -4,12 +4,13 @@ import openslide
 import json
 import csv
 import ntpath
+import os
 import os.path
 
 inp_folder="/data/images/"
-inp_manifest="manifest.csv"
-out_manifest_csv="manifest-out.csv"
-out_manifest_json="manifest-out.json"
+out_folder="/data/metadata/"
+out_metadata_csv="metadata-out.csv"
+out_metadata_json="metadata-out.json"
 
 # compute md5sum hash of image file
 def md5(fname):
@@ -21,16 +22,23 @@ def md5(fname):
 
 # Extract openslide metadata from image file
 def package_metadata(img_meta,img):
-    img_prop = img.properties;
-    img_meta["vendor"] = img_prop["openslide.vendor"];
     img_meta["level_count"] = int(img.level_count);
     img_meta["width"]  = img.dimensions[0];
     img_meta["height"] = img.dimensions[1];
-    img_meta["objective_power"] = img_prop[openslide.PROPERTY_NAME_OBJECTIVE_POWER];
-    img_meta["mpp_x"] = float(img_prop[openslide.PROPERTY_NAME_MPP_X]);
-    img_meta["mpp_y"] = float(img_prop[openslide.PROPERTY_NAME_MPP_Y]);
-    img_meta["mpp-x"] = float(img_prop[openslide.PROPERTY_NAME_MPP_X]);
-    img_meta["mpp-y"] = float(img_prop[openslide.PROPERTY_NAME_MPP_Y]);
+ 
+    img_prop = img.properties;
+    img_meta["vendor"] = "unknown" 
+    img_meta["objective_power"] = "unknown";
+    img_meta["mpp_x"] = float(-1.0);
+    img_meta["mpp_y"] = float(-1.0);
+    if openslide.PROPERTY_NAME_VENDOR in img_prop:
+       img_meta["vendor"] = img_prop[openslide.PROPERTY_NAME_VENDOR];
+    if openslide.PROPERTY_NAME_OBJECTIVE_POWER in img_prop:
+       img_meta["objective_power"] = img_prop[openslide.PROPERTY_NAME_OBJECTIVE_POWER];
+    if openslide.PROPERTY_NAME_MPP_X in img_prop:
+       img_meta["mpp_x"] = float(img_prop[openslide.PROPERTY_NAME_MPP_X]);
+    if openslide.PROPERTY_NAME_MPP_Y in img_prop:
+       img_meta["mpp_y"] = float(img_prop[openslide.PROPERTY_NAME_MPP_Y]);
     img_meta_prop = {}
     for p in img_prop:
         img_meta_prop[p] = img_prop[p];
@@ -65,61 +73,55 @@ def openslide_metadata(fname):
 
 def extract_macro_image(img):
     img_rgba  = img.associated_images;
+    print(img_rgba)
     macro_rgb = None;
     label_rgb = None;
     thumb_rgb = None;
     if img_rgba != None:
-        macro_rgb = img_rgba["macro"].convert("RGB");
-        label_rgb = img_rgba["macro"].convert("RGB");
-        thumb_rgb = img_rgba["macro"].convert("RGB");
+       if "macro" in img_rgba:
+          macro_rgb = img_rgba["macro"].convert("RGB");
+       if "label" in img_rgba:
+          label_rgb = img_rgba["label"].convert("RGB");
+       if "thumbnail" in img_rgba:
+          thumb_rgb = img_rgba["thumbnail"].convert("RGB");
     return macro_rgb,label_rgb,thumb_rgb;
 
 def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname):
     base_name = ntpath.basename(fname);
+    if not os.path.exists(out_folder+fname):
+       os.mkdir(out_folder+fname);
     fname_pre = os.path.splitext(base_name)[0];
-    fname_out = inp_folder + fname_pre + "-macro.jpg";
-    macro_rgb.save(fname_out);
-    fname_out = inp_folder + fname_pre + "-label.jpg";
-    label_rgb.save(fname_out);
-    fname_out = inp_folder + fname_pre + "-thumb.jpg";
-    thumb_rgb.save(fname_out);
+    if macro_rgb:
+       fname_out = out_folder + fname + "/" + fname_pre + "-macro.jpg";
+       macro_rgb.save(fname_out);
+    if label_rgb:
+       fname_out = out_folder + fname + "/" + fname_pre + "-label.jpg";
+       label_rgb.save(fname_out);
+    if thumb_rgb:
+       fname_out = out_folder + fname + "/" + fname_pre + "-thumb.jpg";
+       thumb_rgb.save(fname_out);
 
 def main(argv):
+    inp_manifest="manifest.csv"
+    if len(argv)!=0:
+       inp_manifest = argv[0]
     inp_file = open(inp_folder + inp_manifest);
-    out_json = open(inp_folder + out_manifest_json,"w");
-    out_csv  = open(inp_folder + out_manifest_csv,"w");
+    out_json = open(out_folder + out_metadata_json,"w");
+    out_csv  = open(out_folder + out_metadata_csv,"w");
 
-    csv_reader = csv.reader(inp_file, delimiter=',')
+    csv_reader = csv.reader(inp_file,delimiter=',')
+    next(csv_reader) # skip header for now
     csv_writer = csv.writer(out_csv,delimiter=',') 
     for row in csv_reader:
-        fname = inp_folder+row[2];
-        md5_val = md5(fname); 
+        fname = inp_folder+row[0];
+        print("Processing: ",fname)
 
         # Extract metadata from image
         img_json,img = openslide_metadata(fname);
-        img_json["subject_id"] = row[0];
-        img_json["case_id"] = row[1];
-        img_json["study_id"] = "default";
-        img_json["file-location"] = inp_folder + row[2];
-        img_json["filename"] = img_json["file-location"]; 
-        img_json["md5sum"] = str(md5_val);
-
-        # Check if md5sum matches, if it has been provided
-        if (len(row)==4 and row[3]!="-1"):
-           if row[3]!=md5_val:
-              img_json["md5_error"] = "md5_error";
-           else:
-              img_json["md5_error"] = "md5_ok";
-        else:
-           img_json["md5_error"] = "md5_computed";
+        img_json["filename"] = row[0]; 
 
         # output to csv file
-        if (len(row)==4 and row[3]!="-1"):
-            csv_writer.writerow([row[0],row[1],row[2],row[3],img_json["error"],img_json["md5_error"]]);
-        elif (len(row)==4 and row[3]=="-1"):
-            csv_writer.writerow([row[0],row[1],row[2],md5_val,img_json["error"],img_json["md5_error"]]);
-        else:
-            csv_writer.writerow([row[0],row[1],row[2],md5_val,img_json["error"],img_json["md5_error"]]);
+        csv_writer.writerow([row[0],img_json["error"]]);
 
         # output to json file
         json.dump(img_json,out_json);

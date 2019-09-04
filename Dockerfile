@@ -1,13 +1,15 @@
-FROM	python:3.7.2 
+FROM python:3.6.9-slim
 MAINTAINER Tahsin Kurc
 
-RUN 	apt-get -q update && \
-	apt-get install -y openslide-tools python3-openslide && \
+RUN apt-get -q update && \
+	apt-get install -y openslide-tools build-essential python3-openslide && \
 	pip install openslide-python 
-
-COPY . /home/.
 
 WORKDIR /home
 
-CMD ["bash", "run.sh"]
+COPY . /home/.
+RUN chmod 0755 run_metadata
+ENV PATH=$PATH:/home/
+
+CMD ["bash", "run_metadata"]
 
