@@ -3,7 +3,7 @@ MAINTAINER Tahsin Kurc
 
 RUN apt-get -q update && \
 	apt-get install -y openslide-tools build-essential && \
-	pip install openslide-python 
+	pip install openslide-python pandas
 
 WORKDIR /home
 

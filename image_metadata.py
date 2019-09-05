@@ -6,11 +6,20 @@ import csv
 import ntpath
 import os
 import os.path
+import pandas as pd
 
 inp_folder="/data/images/"
-out_folder="/data/metadata/"
-out_metadata_csv="metadata-out.csv"
-out_metadata_json="metadata-out.json"
+out_folder="/data/output/"
+out_metadata_json="out-metadata.json"
+
+openslide_no_error=0
+openslide_no_error_msg="openslide-no-error"
+openslide_format_error=1
+openslide_format_error_msg="openslide-format-error"
+openslide_error=2
+openslide_error_msg="openslide-error"
+openslide_unknown_error=3
+openslide_unknown_error_msg="openslide-unknown-error"
 
 # compute md5sum hash of image file
 def md5(fname):
@@ -46,34 +55,32 @@ def package_metadata(img_meta,img):
     return img_meta;
 
 def openslide_metadata(fname):
-    ierr = 0;
+    ierr_code = openslide_no_error;
+    ierr_msg  = openslide_no_error_msg;
     img = None;
     try:
         img = openslide.OpenSlide(fname);
     except openslide.OpenSlideUnsupportedFormatError:
-        ierr = 1;
+        ierr_code = openslide_format_error;
+        ierr_msg  = openslide_format_error_msg;
     except openslide.OpenSlideError:
-        ierr = 2;
+        ierr_code = openslide_error;
+        ierr_msg  = openslide_error_msg;
     except:
-        ierr = 3;
+        ierr_code = openslide_unknown_error;
+        ierr_msg  = openslide_unknown_error_msg;
 
     img_meta = {};
-    if ierr == 1:
-        img_meta["error"] = "format-error";
-    elif ierr == 2:
-        img_meta["error"] = "openslide-error";
-    elif ierr == 3:
-        img_meta["error"] = "unknown-error";
-    elif ierr == 0:
-        img_meta["error"] = "no-error";
-        img_meta = package_metadata(img_meta,img);
+    img_meta["error_code"] = ierr_code
+    img_meta["error_msg"]  = ierr_msg
+    if ierr_code == openslide_no_error:
+       img_meta = package_metadata(img_meta,img);
     img_temp = json.dumps(img_meta);
     img_json = json.loads(img_temp);
-    return img_json,img;
+    return img_json,img,ierr_code,ierr_msg;
 
 def extract_macro_image(img):
     img_rgba  = img.associated_images;
-    print(img_rgba)
     macro_rgb = None;
     label_rgb = None;
     thumb_rgb = None;
@@ -95,56 +102,62 @@ def extract_macro_image(img):
 
 def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname):
     base_name = ntpath.basename(fname);
-    if not os.path.exists(out_folder+fname):
-       os.mkdir(out_folder+fname);
-    fname_pre = os.path.splitext(base_name)[0];
+    dest_folder = out_folder + fname + "/";
+    if not os.path.exists(dest_folder):
+       os.makedirs(dest_folder);
+    fname_pre = dest_folder + os.path.splitext(base_name)[0];
     if macro_rgb:
-       fname_out = out_folder + fname + "/" + fname_pre + "-macro.jpg";
+       fname_out = fname_pre + "-macro.jpg";
        macro_rgb.save(fname_out);
     if label_rgb:
-       fname_out = out_folder + fname + "/" + fname_pre + "-label.jpg";
+       fname_out = fname_pre + "-label.jpg";
        label_rgb.save(fname_out);
     if thumb_rgb:
-       fname_out = out_folder + fname + "/" + fname_pre + "-thumb.jpg";
+       fname_out = fname_pre + "-thumb.jpg";
        thumb_rgb.save(fname_out);
 
 def main(argv):
-    inp_manifest="manifest.csv"
-    if len(argv)!=0:
+    inp_manifest = "manifest.csv"
+    out_manifest = "out-manifest.csv"
+    if len(argv)==1:
        inp_manifest = argv[0]
-    inp_file = open(inp_folder + inp_manifest);
-    out_json = open(out_folder + out_metadata_json,"w");
-    out_csv  = open(out_folder + out_metadata_csv,"w");
+       out_manifest = "out-" + inp_manifest
+    if len(argv)==2:
+       inp_manifest = argv[0]
+       out_manifest = argv[1]
 
-    csv_reader = csv.reader(inp_file, delimiter=',')
-    h_row = next(csv_reader)
-    path_i = -1 
-    for i in range(len(h_row)):
-        if h_row[i]=='path':
-           path_i = i
-    if path_i==-1:
+    inp_file = open(inp_folder + "/" + inp_manifest);
+    pf = pd.read_csv(inp_file,sep=',')
+    if "path" not in pf.columns:
         print("ERROR: Header is missing in file: ",inp_manifest)
+        inp_file.close()
         sys.exit(1);
-    csv_writer = csv.writer(out_csv,delimiter=',') 
-    for file_row in csv_reader:
-        fname = inp_folder+file_row[path_i];
+
+    out_json = open(out_folder + "/" + out_metadata_json,"w");
+    out_csv  = open(out_folder + "/" + out_manifest,"w");
+
+    pf["metadata_error_code"] = 0
+    pf["metadata_error_msg"]  = ""
+    for file_idx in range(len(pf["path"])):
+        file_row = pf["path"][file_idx];
+        fname = inp_folder+file_row;
         print("Processing: ",fname)
 
         # Extract metadata from image
-        img_json,img = openslide_metadata(fname);
-        img_json["filename"] = file_row[path_i]; 
-
-        # output to csv file
-        csv_writer.writerow([file_row[path_i],img_json["error"]]);
+        img_json,img,ierr_code,ierr_msg = openslide_metadata(fname);
+        img_json["filename"] = file_row;
+        pf.at[file_idx,"metadata_error_code"] = ierr_code
+        pf.at[file_idx,"metadata_error_msg"]  = ierr_msg 
 
         # output to json file
         json.dump(img_json,out_json);
         out_json.write("\n");
 
         # If file is OK, extract macro image and write it out
-        if img_json["error"]=="no-error":
+        if ierr_code==openslide_no_error:
            macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
-           write_macro_image(macro_rgb,label_rgb,thumb_rgb,file_row[path_i]);
+           write_macro_image(macro_rgb,label_rgb,thumb_rgb,file_row);
+    pf.to_csv(out_csv,index=False)
 
     inp_file.close();
     out_json.close();
