@@ -11,5 +11,5 @@ COPY . /home/.
 RUN chmod 0755 run_metadata
 ENV PATH=$PATH:/home/
 
-CMD ["bash", "run_metadata"]
+CMD ["run_metadata"]
 

@@ -8,10 +8,6 @@ import os
 import os.path
 import pandas as pd
 
-inp_folder="/data/images/"
-out_folder="/data/output/"
-out_metadata_json="out-metadata.json"
-
 openslide_no_error=0
 openslide_no_error_msg="openslide-no-error"
 openslide_format_error=1
@@ -117,19 +113,26 @@ def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname):
        thumb_rgb.save(fname_out);
 
 def main(argv):
-    inp_manifest = "manifest.csv"
-    out_manifest = "out-manifest.csv"
+    inp_folder="/data/images/"
+    out_folder="/data/output/"
+    out_metadata_json="quip_metadata.json"
+    inp_manifest = "quip_manifest.csv"
     if len(argv)==1:
        inp_manifest = argv[0]
-       out_manifest = "out-" + inp_manifest
-    if len(argv)==2:
-       inp_manifest = argv[0]
-       out_manifest = argv[1]
+    out_manifest = inp_manifest
 
     inp_file = open(inp_folder + "/" + inp_manifest);
     pf = pd.read_csv(inp_file,sep=',')
     if "path" not in pf.columns:
         print("ERROR: Header is missing in file: ",inp_manifest)
+        inp_file.close()
+        sys.exit(1);
+    if "file_uuid" not in pf.columns:
+        print("ERROR: file_uuid is missing in file: ",inp_manifest)
+        inp_file.close()
+        sys.exit(1);
+    if "row_status" not in pf.columns:
+        print("ERROR: row_status is missing in file: ",inp_manifest)
         inp_file.close()
         sys.exit(1);
 
@@ -139,24 +142,26 @@ def main(argv):
     pf["metadata_error_code"] = 0
     pf["metadata_error_msg"]  = ""
     for file_idx in range(len(pf["path"])):
-        file_row = pf["path"][file_idx];
-        fname = inp_folder+file_row;
-        print("Processing: ",fname)
+       if pf["row_status"][file_idx]=="ok":
+           file_row  = pf["path"][file_idx];
+           file_uuid = pf["file_uuid"][file_idx];
+           fname = inp_folder+file_row;
+           print("Processing: ",fname)
 
-        # Extract metadata from image
-        img_json,img,ierr_code,ierr_msg = openslide_metadata(fname);
-        img_json["filename"] = file_row;
-        pf.at[file_idx,"metadata_error_code"] = ierr_code
-        pf.at[file_idx,"metadata_error_msg"]  = ierr_msg 
+           # Extract metadata from image
+           img_json,img,ierr_code,ierr_msg = openslide_metadata(fname);
+           img_json["filename"] = file_row;
+           pf.at[file_idx,"metadata_error_code"] = ierr_code
+           pf.at[file_idx,"metadata_error_msg"]  = ierr_msg 
 
-        # output to json file
-        json.dump(img_json,out_json);
-        out_json.write("\n");
+           # output to json file
+           json.dump(img_json,out_json);
+           out_json.write("\n");
 
-        # If file is OK, extract macro image and write it out
-        if ierr_code==openslide_no_error:
-           macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
-           write_macro_image(macro_rgb,label_rgb,thumb_rgb,file_row);
+           # If file is OK, extract macro image and write it out
+           if ierr_code==openslide_no_error:
+              macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
+              write_macro_image(macro_rgb,label_rgb,thumb_rgb,file_row,file_uuid);
     pf.to_csv(out_csv,index=False)
 
     inp_file.close();
