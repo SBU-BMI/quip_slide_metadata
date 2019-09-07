@@ -96,7 +96,7 @@ def extract_macro_image(img):
           thumb_rgb = img.get_thumbnail((img_w,img_h)).convert("RGB"); 
     return macro_rgb,label_rgb,thumb_rgb;
 
-def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname):
+def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname,file_uuid):
     base_name = ntpath.basename(fname);
     dest_folder = out_folder + fname + "/";
     if not os.path.exists(dest_folder):
