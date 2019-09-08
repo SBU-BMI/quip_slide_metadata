@@ -121,37 +121,37 @@ parser.add_argument("--inpdir",nargs="?",default="/data/images",type=str,help="i
 parser.add_argument("--outdir",nargs="?",default="/data/output",type=str,help="output folder.")
 
 def main(args):
-    inp_folder = args.inpdir
-    out_folder = args.outdir
-    inp_manifest = args.inpmeta 
-    out_manifest = inp_manifest
-    out_metadata_json=args.outmeta
-    out_error_json = args.errfile 
+    inp_folder   = args.inpdir
+    out_folder   = args.outdir
+    inp_manifest_fname = args.inpmeta 
+    out_manifest_fname = inp_manifest
+    out_metadata_json_fname = args.outmeta
+    out_error_fname = args.errfile 
 
-    out_error_json = open(out_folder + "/" + out_error_json,"w");
+    out_error_fd = open(out_folder + "/" + out_error_fname,"w");
     all_log = {}
     all_log["error"] = []
     all_log["warning"] = [] 
     try:
-        inp_file = open(inp_folder + "/" + inp_manifest);
+        inp_metadata_fd = open(inp_folder + "/" + inp_manifest_fname);
     except OSError:
         ierr = {}
         ierr["error_code"] = 1
-        ierr["error_msg"] = "missing manifest file: " + str(inp_manifest);
+        ierr["error_msg"] = "missing manifest file: " + str(inp_manifest_fname);
         all_log["error"].append(ierr)
-        json.dump(all_log,out_json)
-        out_json.close()
+        json.dump(all_log,out_error_fd)
+        out_error_fd.close()
         sys.exit(1)
 
-    pf = pd.read_csv(inp_file,sep=',')
+    pf = pd.read_csv(inp_metadata_fd,sep=',')
     if "path" not in pf.columns:
         ierr = {}
         ierr["error_code"] = 2
         ierr["error_msg"] = "column path is missing."
         all_log["error"].append(ierr)
-        json.dump(all_log,out_json)
-        out_json.close()
-        inp_file.close()
+        json.dump(all_log,out_error_fd)
+        out_error_fd.close()
+        inp_metadata_fd.close()
         sys.exit(1)
 
     if "file_uuid" not in pf.columns:
@@ -171,13 +171,13 @@ def main(args):
         all_log["warning"].append(iwarn)
         fp["row_status"] = "ok"
  
-    out_json = open(out_folder + "/" + out_metadata_json,"w");
-    out_csv  = open(out_folder + "/" + out_manifest,"w");
+    out_metadata_json_fd = open(out_folder + "/" + out_metadata_json_fname,"w");
+    out_metadata_fd = open(out_folder + "/" + out_manifest_fname,"w");
     for file_idx in range(len(pf["path"])):
        if pf["row_status"][file_idx]=="ok":
            file_row  = pf["path"][file_idx];
            file_uuid = pf["file_uuid"][file_idx];
-           fname = inp_folder+file_row;
+           fname = inp_folder+"/"+file_row;
 
            # Extract metadata from image
            img_json,img,ierr_code,ierr_msg = openslide_metadata(fname);
@@ -196,21 +196,21 @@ def main(args):
                    pf.at[file_idx,"row_status"] = pf["row_status"][file_idx]+";"+ierr_msg
  
            # output to json file
-           json.dump(img_json,out_json);
-           out_json.write("\n");
+           json.dump(img_json,out_metadata_json_fd);
+           out_metadata_json_fd.write("\n");
 
            # If file is OK, extract macro image and write it out
            if ierr_code==openslide_no_error:
               macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
               write_macro_image(macro_rgb,label_rgb,thumb_rgb,out_folder+"/"+file_uuid);
 
-    pf.to_csv(out_csv,index=False)
-    json.dump(all_log,out_json)
+    pf.to_csv(out_metadata_fd,index=False)
+    json.dump(all_log,out_error_fd)
 
-    out_json.close()
-    inp_file.close();
-    out_json.close();
-    out_csv.close();
+    inp_metadata_fd.close();
+    out_error_fd.close()
+    out_metadata_json_fd.close();
+    out_metadata_fd.close();
 
 if __name__ == "__main__":
     args = parser.parse_args() 
