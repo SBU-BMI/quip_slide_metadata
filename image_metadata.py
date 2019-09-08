@@ -115,27 +115,63 @@ def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname,file_uuid):
 def main(argv):
     inp_folder="/data/images/"
     out_folder="/data/output/"
-    out_metadata_json="quip_metadata.json"
     inp_manifest = "quip_manifest.csv"
     if len(argv)==1:
        inp_manifest = argv[0]
     out_manifest = inp_manifest
+    out_metadata_json="quip_metadata.json"
+    out_error_json = "quip_error_log.json"
 
-    inp_file = open(inp_folder + "/" + inp_manifest);
+    out_error_json = open(out_folder + "/" + out_error_json,"w");
+    error_log   = []
+    warning_log = []
+    all_log     = {}
+    all_log["error_log"] = error_log
+    all_log["warning_log"] = warning_log
+    try:
+        inp_file = open(inp_folder + "/" + inp_manifest);
+    except OSError:
+        ierr = {}
+        ierr["error_code"] = 1
+        ierr["error_msg"] = "missing manifest file: " + str(inp_manifest);
+        error_log.append(ierr)
+        all_log["error_log"] = error_log
+        json.dump(all_log,out_json)
+        out_json.close()
+        sys.exit(1)
+
     pf = pd.read_csv(inp_file,sep=',')
     if "path" not in pf.columns:
-        print("ERROR: Header is missing in file: ",inp_manifest)
+        ierr = {}
+        ierr["error_code"] = 2
+        ierr["error_msg"] = "manifest file is missing header."
+        error_log.append(ierr)
+        all_log["error_log"] = error_log
+        json.dump(all_log,out_json)
+        out_json.close()
         inp_file.close()
-        sys.exit(1);
+        sys.exit(1)
     if "file_uuid" not in pf.columns:
-        print("ERROR: file_uuid is missing in file: ",inp_manifest)
+        ierr = {}
+        ierr["error_code"] = 3
+        ierr["error_msg"] = "column file_uuid is missing."
+        error_log.append(ierr)
+        all_log["error_log"] = error_log
+        json.dump(all_log,out_json)
+        out_json.close()
         inp_file.close()
-        sys.exit(1);
+        sys.exit(1)
     if "row_status" not in pf.columns:
-        print("ERROR: row_status is missing in file: ",inp_manifest)
+        ierr = {}
+        ierr["error_code"] = 3
+        ierr["error_msg"] = "column row_status is missing."
+        error_log.append(ierr)
+        all_log["error_log"] = error_log
+        json.dump(all_log,out_json)
+        out_json.close()
         inp_file.close()
-        sys.exit(1);
-
+        sys.exit(1)
+ 
     out_json = open(out_folder + "/" + out_metadata_json,"w");
     out_csv  = open(out_folder + "/" + out_manifest,"w");
 
@@ -153,7 +189,16 @@ def main(argv):
            img_json["filename"] = file_row;
            pf.at[file_idx,"metadata_error_code"] = ierr_code
            pf.at[file_idx,"metadata_error_msg"]  = ierr_msg 
-
+           if ierr_code!=openslide_no_error: 
+               ierr = {}
+               ierr["error_code"] = ierr_code
+               ierr["error_msg"] = ierr_msg 
+               ierr["row_idx"] = file_idx
+               ierr["filename"] = file_row 
+               error_log.append(ierr)
+               all_log["error_log"]   = error_log
+               all_log["warning_log"] = warning_log
+ 
            # output to json file
            json.dump(img_json,out_json);
            out_json.write("\n");
@@ -163,7 +208,9 @@ def main(argv):
               macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
               write_macro_image(macro_rgb,label_rgb,thumb_rgb,file_row,file_uuid);
     pf.to_csv(out_csv,index=False)
+    json.dump(all_log,out_json)
 
+    out_json.close()
     inp_file.close();
     out_json.close();
     out_csv.close();
