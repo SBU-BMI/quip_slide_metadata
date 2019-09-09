@@ -10,14 +10,13 @@ import pandas as pd
 import argparse
 import uuid
 
-openslide_no_error=0
-openslide_no_error_msg="openslide-no-error"
-openslide_format_error=1
-openslide_format_error_msg="openslide-format-error"
-openslide_error=2
-openslide_error_msg="openslide-error"
-openslide_unknown_error=3
-openslide_unknown_error_msg="openslide-unknown-error"
+error_info = {}
+error_info["no_error"] = { "code":"0", "msg":"no-error" }
+error_info["image_file"] = { "code":"201", "msg":"image-format-unsupported" }
+error_info["openslide"] = { "code":"202", "msg":"openslide-error" }
+error_info["file_format"] = { "code":"203", "msg":"file-format-error" }
+error_info["missing_file"] = { "code":"204", "msg":"missing-file" }
+error_info["missing_columns"] = { "code":"205", "msg":"missing-columns" }
 
 # compute md5sum hash of image file
 def md5(fname):
@@ -53,29 +52,26 @@ def package_metadata(img_meta,img):
     return img_meta;
 
 def openslide_metadata(fname):
-    ierr_code = openslide_no_error;
-    ierr_msg  = openslide_no_error_msg;
-    img = None;
-    try:
-        img = openslide.OpenSlide(fname);
-    except openslide.OpenSlideUnsupportedFormatError:
-        ierr_code = openslide_format_error;
-        ierr_msg  = openslide_format_error_msg;
-    except openslide.OpenSlideError:
-        ierr_code = openslide_error;
-        ierr_msg  = openslide_error_msg;
-    except:
-        ierr_code = openslide_unknown_error;
-        ierr_msg  = openslide_unknown_error_msg;
+    ierr = error_info["no_error"];
+    img  = None;
+    img_json = None;
+    if os.path.exists(fname): 
+        try: 
+            img = openslide.OpenSlide(fname); 
+        except openslide.OpenSlideUnsupportedFormatError: 
+            ierr = error_info["image_file"]; 
+        except: 
+            ierr = error_info["openslide"];
+    else: # file does not exist
+        ierr = error_info["missing_file"];
 
     img_meta = {};
-    img_meta["error_code"] = ierr_code
-    img_meta["error_msg"]  = ierr_msg
-    if ierr_code == openslide_no_error:
+    img_meta["error_info"] = ierr
+    if ierr["code"] == error_info["no_error"]["code"]:
        img_meta = package_metadata(img_meta,img);
     img_temp = json.dumps(img_meta);
     img_json = json.loads(img_temp);
-    return img_json,img,ierr_code,ierr_msg;
+    return img_json,img,ierr;
 
 def extract_macro_image(img):
     img_rgba  = img.associated_images;
@@ -135,9 +131,8 @@ def main(args):
     try:
         inp_metadata_fd = open(inp_folder + "/" + inp_manifest_fname);
     except OSError:
-        ierr = {}
-        ierr["error_code"] = 1
-        ierr["error_msg"] = "missing manifest file: " + str(inp_manifest_fname);
+        ierr = error_info["missing_file"];
+        ierr["msg"] = ierr["msg"]+": "+str(inp_manifest_fname)
         all_log["error"].append(ierr)
         json.dump(all_log,out_error_fd)
         out_error_fd.close()
@@ -145,9 +140,8 @@ def main(args):
 
     pf = pd.read_csv(inp_metadata_fd,sep=',')
     if "path" not in pf.columns:
-        ierr = {}
-        ierr["error_code"] = 2
-        ierr["error_msg"] = "column path is missing."
+        ierr = error_info["missing_columns"]
+        ierr["msg"] = ierr["msg"]+": "+"path"
         all_log["error"].append(ierr)
         json.dump(all_log,out_error_fd)
         out_error_fd.close()
@@ -155,52 +149,55 @@ def main(args):
         sys.exit(1)
 
     if "file_uuid" not in pf.columns:
-        iwarn = {}
-        iwarn["warning_code"] = 1
-        iwarn["warning_msg"] = "column file_uuid is missing. Will generate."
+        iwarn = error_info["missing_columns"] 
+        iwarn["msg"] = iwarn["msg"]+": "+"file_uuid. Will generate."
         all_log["warning"].append(iwarn)
         fp["file_uuid"] = "" 
         for idx, row in pf.iterrows(): 
             filename, file_extension = path.splitext(row["path"]) 
             pf.at[idx,"file_uuid"] = str(uuid.uuid1()) + file_extension
             
-    if "row_status" not in pf.columns:
-        iwarn = {}
-        iwarn["warning_code"] = 3
-        iwarn["warning_msg"] = "column row_status is missing. Will generate."
+    if "error_code" not in pf.columns:
+        iwarn = error_info["missing_columns"] 
+        iwarn["msg"] = iwarn["msg"]+": "+"error_code. Will generate."
         all_log["warning"].append(iwarn)
-        fp["row_status"] = "ok"
+        fp["error_code"] = error_info["no_error"]["code"] 
+
+    if "error_msg" not in pf.columns:
+        iwarn = error_info["missing_columns"] 
+        iwarn["msg"] = iwarn["msg"]+": "+"error_msg. Will generate."
+        all_log["warning"].append(iwarn)
+        fp["error_msg"] = error_info["no_error"]["msg"] 
  
     out_metadata_json_fd = open(out_folder + "/" + out_metadata_json_fname,"w");
     out_metadata_fd = open(out_folder + "/" + out_manifest_fname,"w");
     for file_idx in range(len(pf["path"])):
-       if pf["row_status"][file_idx]=="ok":
+       if pf["error_code"][file_idx]==error_info["no_error"]["code"]:
            file_row  = pf["path"][file_idx];
            file_uuid = pf["file_uuid"][file_idx];
            fname = inp_folder+"/"+file_row;
 
            # Extract metadata from image
-           img_json,img,ierr_code,ierr_msg = openslide_metadata(fname);
-           img_json["filename"] = file_row;
-           if ierr_code!=openslide_no_error: 
-               ierr = {}
-               ierr["error_code"] = ierr_code
-               ierr["error_msg"] = ierr_msg 
+           img_json,img,ierr = openslide_metadata(fname);
+           img_json["filename"] = file_row; 
+           if ierr["code"]!=error_info["no_error"]["code"]: 
                ierr["row_idx"] = file_idx
                ierr["filename"] = file_row 
                ierr["file_uuid"] = file_uuid
                all_log["error"].append(ierr) 
-               if pf["row_status"][file_idx]=="ok": 
-                   pf.at[file_idx,"row_status"] = ierr_msg 
+               if pf["error_code"][file_idx]==error_info["no_error"]["code"]: 
+                   pf.at[file_idx,"error_code"] = ierr["code"]
+                   pf.at[file_idx,"error_msg"]  = ierr["msg"]
                else: 
-                   pf.at[file_idx,"row_status"] = pf["row_status"][file_idx]+";"+ierr_msg
+                   pf.at[file_idx,"error_code"] = pf.at[file_idx,"error_code"]+";"+ierr["code"]
+                   pf.at[file_idx,"error_msg"]  = pf.at[file_idx,"error_msg"]+";"+ierr["msg"]
  
            # output to json file
            json.dump(img_json,out_metadata_json_fd);
            out_metadata_json_fd.write("\n");
 
            # If file is OK, extract macro image and write it out
-           if ierr_code==openslide_no_error:
+           if ierr["code"]!=error_info["no_error"]["code"]:
               macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
               write_macro_image(macro_rgb,label_rgb,thumb_rgb,out_folder+"/"+file_uuid);
 
