@@ -5,11 +5,11 @@ RUN apt-get -q update && \
 	apt-get install -y openslide-tools build-essential && \
 	pip install openslide-python pandas
 
-WORKDIR /home
+WORKDIR /root
 
-COPY . /home/.
+COPY . /root/.
 RUN chmod 0755 run_metadata
-ENV PATH=$PATH:/home/
+ENV PATH=.:$PATH:/root/
 
 CMD ["run_metadata"]
 

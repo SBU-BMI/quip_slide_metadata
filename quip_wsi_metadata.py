@@ -11,12 +11,12 @@ import argparse
 import uuid
 
 error_info = {}
-error_info["no_error"] = { "code":"0", "msg":"no-error" }
-error_info["image_file"] = { "code":"201", "msg":"image-format-unsupported" }
-error_info["openslide"] = { "code":"202", "msg":"openslide-error" }
-error_info["file_format"] = { "code":"203", "msg":"file-format-error" }
-error_info["missing_file"] = { "code":"204", "msg":"missing-file" }
-error_info["missing_columns"] = { "code":"205", "msg":"missing-columns" }
+error_info["no_error"] = { "code":0, "msg":"no-error" }
+error_info["image_file"] = { "code":201, "msg":"image-format-unsupported" }
+error_info["openslide"] = { "code":202, "msg":"openslide-error" }
+error_info["file_format"] = { "code":203, "msg":"file-format-error" }
+error_info["missing_file"] = { "code":204, "msg":"missing-file" }
+error_info["missing_columns"] = { "code":205, "msg":"missing-columns" }
 
 # compute md5sum hash of image file
 def md5(fname):
@@ -67,7 +67,7 @@ def openslide_metadata(fname):
 
     img_meta = {};
     img_meta["error_info"] = ierr
-    if ierr["code"] == error_info["no_error"]["code"]:
+    if str(ierr["code"]) == str(error_info["no_error"]["code"]):
        img_meta = package_metadata(img_meta,img);
     img_temp = json.dumps(img_meta);
     img_json = json.loads(img_temp);
@@ -120,7 +120,7 @@ def main(args):
     inp_folder   = args.inpdir
     out_folder   = args.outdir
     inp_manifest_fname = args.inpmeta 
-    out_manifest_fname = inp_manifest
+    out_manifest_fname = inp_manifest_fname
     out_metadata_json_fname = args.outmeta
     out_error_fname = args.errfile 
 
@@ -161,7 +161,7 @@ def main(args):
         iwarn = error_info["missing_columns"] 
         iwarn["msg"] = iwarn["msg"]+": "+"error_code. Will generate."
         all_log["warning"].append(iwarn)
-        fp["error_code"] = error_info["no_error"]["code"] 
+        fp["error_code"] = str(error_info["no_error"]["code"])
 
     if "error_msg" not in pf.columns:
         iwarn = error_info["missing_columns"] 
@@ -172,24 +172,24 @@ def main(args):
     out_metadata_json_fd = open(out_folder + "/" + out_metadata_json_fname,"w");
     out_metadata_fd = open(out_folder + "/" + out_manifest_fname,"w");
     for file_idx in range(len(pf["path"])):
-       if pf["error_code"][file_idx]==error_info["no_error"]["code"]:
+       if str(pf["error_code"][file_idx])==str(error_info["no_error"]["code"]):
            file_row  = pf["path"][file_idx];
            file_uuid = pf["file_uuid"][file_idx];
            fname = inp_folder+"/"+file_row;
 
            # Extract metadata from image
            img_json,img,ierr = openslide_metadata(fname);
-           img_json["filename"] = file_row; 
-           if ierr["code"]!=error_info["no_error"]["code"]: 
+           img_json["filename"] = file_uuid; 
+           if str(ierr["code"])!=str(error_info["no_error"]["code"]):
                ierr["row_idx"] = file_idx
                ierr["filename"] = file_row 
                ierr["file_uuid"] = file_uuid
                all_log["error"].append(ierr) 
-               if pf["error_code"][file_idx]==error_info["no_error"]["code"]: 
-                   pf.at[file_idx,"error_code"] = ierr["code"]
+               if str(pf["error_code"][file_idx])==str(error_info["no_error"]["code"]): 
+                   pf.at[file_idx,"error_code"] = str(ierr["code"])
                    pf.at[file_idx,"error_msg"]  = ierr["msg"]
                else: 
-                   pf.at[file_idx,"error_code"] = pf.at[file_idx,"error_code"]+";"+ierr["code"]
+                   pf.at[file_idx,"error_code"] = pf.at[file_idx,"error_code"]+";"+str(ierr["code"])
                    pf.at[file_idx,"error_msg"]  = pf.at[file_idx,"error_msg"]+";"+ierr["msg"]
  
            # output to json file
@@ -197,7 +197,7 @@ def main(args):
            out_metadata_json_fd.write("\n");
 
            # If file is OK, extract macro image and write it out
-           if ierr["code"]!=error_info["no_error"]["code"]:
+           if str(ierr["code"])==str(error_info["no_error"]["code"]):
               macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
               write_macro_image(macro_rgb,label_rgb,thumb_rgb,out_folder+"/"+file_uuid);
 
