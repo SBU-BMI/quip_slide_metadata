@@ -17,6 +17,7 @@ error_info["openslide"] = { "code":202, "msg":"openslide-error" }
 error_info["file_format"] = { "code":203, "msg":"file-format-error" }
 error_info["missing_file"] = { "code":204, "msg":"missing-file" }
 error_info["missing_columns"] = { "code":205, "msg":"missing-columns" }
+error_info["manifest_errors"] = { "code":206, "msg":"manifest-errors" }
 
 # compute md5sum hash of image file
 def md5(fname):
@@ -94,11 +95,16 @@ def extract_macro_image(img):
           thumb_rgb = img.get_thumbnail((img_w,img_h)).convert("RGB"); 
     return macro_rgb,label_rgb,thumb_rgb;
 
-def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname):
+def write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,fname):
     base_name = ntpath.basename(fname);
     if not os.path.exists(fname):
        os.makedirs(fname);
     fname_pre = fname + "/" + os.path.splitext(base_name)[0];
+
+    out_metadata_json_fd = open(fname_pre+"-metadata.json","w");
+    json.dump(img_json,out_metadata_json_fd);
+    out_metadata_json_fd.close();
+
     if macro_rgb is not None:
        fname_out = fname_pre + "-macro.jpg";
        macro_rgb.save(fname_out);
@@ -111,17 +117,43 @@ def write_macro_image(macro_rgb,label_rgb,thumb_rgb,fname):
 
 parser = argparse.ArgumentParser(description="WSI metadata extractor.")
 parser.add_argument("--inpmeta",nargs="?",default="quip_manifest.csv",type=str,help="input manifest (metadata) file.")
-parser.add_argument("--outmeta",nargs="?",default="quip_wsi_metadata.json",type=str,help="output WSI metadata file.")
 parser.add_argument("--errfile",nargs="?",default="quip_wsi_error_log.json",type=str,help="error log file.")
 parser.add_argument("--inpdir",nargs="?",default="/data/images",type=str,help="input folder.")
 parser.add_argument("--outdir",nargs="?",default="/data/output",type=str,help="output folder.")
+
+def check_input_errors(pf,all_log):
+    ret_val = 0;
+    if "path" not in pf.columns:
+        ierr = error_info["missing_columns"]
+        ierr["msg"] = ierr["msg"]+": "+"path"
+        all_log["error"].append(ierr)
+        ret_val = 1
+
+    if "file_uuid" not in pf.columns:
+        ierr = error_info["missing_columns"] 
+        ierr["msg"] = ierr["msg"]+": "+"file_uuid"
+        all_log["error"].append(ierr)
+        ret_val = 1
+            
+    if "manifest_error_code" not in pf.columns:
+        ierr = error_info["missing_columns"] 
+        ierr["msg"] = ierr["msg"]+": "+"manifest_error_code"
+        all_log["error"].append(ierr)
+        ret_val = 1
+
+    if "manifest_error_msg" not in pf.columns:
+        ierr = error_info["missing_columns"] 
+        ierr["msg"] = ierr["msg"]+": "+"manifest_error_msg"
+        all_log["error"].append(ierr)
+        ret_val = 1
+
+    return ret_val
 
 def main(args):
     inp_folder   = args.inpdir
     out_folder   = args.outdir
     inp_manifest_fname = args.inpmeta 
     out_manifest_fname = inp_manifest_fname
-    out_metadata_json_fname = args.outmeta
     out_error_fname = args.errfile 
 
     out_error_fd = open(out_folder + "/" + out_error_fname,"w");
@@ -138,75 +170,50 @@ def main(args):
         out_error_fd.close()
         sys.exit(1)
 
-    pf = pd.read_csv(inp_metadata_fd,sep=',')
-    if "path" not in pf.columns:
-        ierr = error_info["missing_columns"]
-        ierr["msg"] = ierr["msg"]+": "+"path"
-        all_log["error"].append(ierr)
-        json.dump(all_log,out_error_fd)
-        out_error_fd.close()
-        inp_metadata_fd.close()
-        sys.exit(1)
-
-    if "file_uuid" not in pf.columns:
-        iwarn = error_info["missing_columns"] 
-        iwarn["msg"] = iwarn["msg"]+": "+"file_uuid. Will generate."
-        all_log["warning"].append(iwarn)
-        fp["file_uuid"] = "" 
-        for idx, row in pf.iterrows(): 
-            filename, file_extension = path.splitext(row["path"]) 
-            pf.at[idx,"file_uuid"] = str(uuid.uuid1()) + file_extension
-            
-    if "error_code" not in pf.columns:
-        iwarn = error_info["missing_columns"] 
-        iwarn["msg"] = iwarn["msg"]+": "+"error_code. Will generate."
-        all_log["warning"].append(iwarn)
-        fp["error_code"] = str(error_info["no_error"]["code"])
-
-    if "error_msg" not in pf.columns:
-        iwarn = error_info["missing_columns"] 
-        iwarn["msg"] = iwarn["msg"]+": "+"error_msg. Will generate."
-        all_log["warning"].append(iwarn)
-        fp["error_msg"] = error_info["no_error"]["msg"] 
+    pfinp = pd.read_csv(inp_metadata_fd,sep=',')
+    if check_input_errors(pfinp,all_log) != 0:
+        json.dump(all_log,out_error_fd);
+        out_error_fd.close();
+        inp_metadata_fd.close();
+        sys.exit(1);
  
-    out_metadata_json_fd = open(out_folder + "/" + out_metadata_json_fname,"w");
     out_metadata_fd = open(out_folder + "/" + out_manifest_fname,"w");
-    for file_idx in range(len(pf["path"])):
-       if str(pf["error_code"][file_idx])==str(error_info["no_error"]["code"]):
-           file_row  = pf["path"][file_idx];
-           file_uuid = pf["file_uuid"][file_idx];
-           fname = inp_folder+"/"+file_row;
-
-           # Extract metadata from image
-           img_json,img,ierr = openslide_metadata(fname);
-           img_json["filename"] = file_uuid; 
-           if str(ierr["code"])!=str(error_info["no_error"]["code"]):
-               ierr["row_idx"] = file_idx
-               ierr["filename"] = file_row 
-               ierr["file_uuid"] = file_uuid
-               all_log["error"].append(ierr) 
-               if str(pf["error_code"][file_idx])==str(error_info["no_error"]["code"]): 
-                   pf.at[file_idx,"error_code"] = str(ierr["code"])
-                   pf.at[file_idx,"error_msg"]  = ierr["msg"]
-               else: 
-                   pf.at[file_idx,"error_code"] = pf.at[file_idx,"error_code"]+";"+str(ierr["code"])
-                   pf.at[file_idx,"error_msg"]  = pf.at[file_idx,"error_msg"]+";"+ierr["msg"]
+    cols  = ['file_uuid','slide_error_msg','slide_error_code'];
+    pfout = pd.DataFrame(columns=cols);
+    for file_idx in range(len(pfinp["path"])):
+        file_uuid = pfinp["file_uuid"][file_idx];
+        pfout.at[file_idx,"file_uuid"] = file_uuid;
+        pfout.at[file_idx,"slide_error_code"] = str(error_info["no_error"]["code"]);
+        pfout.at[file_idx,"slide_error_msg"]  = error_info["no_error"]["msg"]; 
+        if str(pfinp["manifest_error_code"][file_idx])!=str(error_info["no_error"]["code"]):
+            pfout.at[file_idx,"file_uuid"] = file_uuid;
+            pfout.at[file_idx,"slide_error_code"] = str(error_info["manifest_errors"]["code"]);
+            pfout.at[file_idx,"slide_error_msg"] = error_info["manifest_errors"]["msg"]; 
+            ierr["row_idx"] = file_idx
+            ierr["file_uuid"] = file_uuid
+            all_log["error"].append(ierr) 
+        else: # Extract metadata from image
+            fname = inp_folder+"/"+pfinp["path"][file_idx];
+            img_json,img,ierr = openslide_metadata(fname);
+            img_json["filename"] = file_uuid; 
+            if str(ierr["code"])!=str(error_info["no_error"]["code"]):
+                ierr["row_idx"] = file_idx
+                ierr["file_uuid"] = file_uuid
+                all_log["error"].append(ierr) 
+                pfout.at[file_idx,"file_uuid"] = file_uuid;
+                pfout.at[file_idx,"slide_error_code"] = str(ierr["code"]);
+                pfout.at[file_idx,"slide_error_msg"] = ierr["msg"];
  
-           # output to json file
-           json.dump(img_json,out_metadata_json_fd);
-           out_metadata_json_fd.write("\n");
+            # If file is OK, extract macro image and write it out
+            if str(ierr["code"])==str(error_info["no_error"]["code"]):
+                macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
+                write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,out_folder+"/"+file_uuid);
 
-           # If file is OK, extract macro image and write it out
-           if str(ierr["code"])==str(error_info["no_error"]["code"]):
-              macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
-              write_macro_image(macro_rgb,label_rgb,thumb_rgb,out_folder+"/"+file_uuid);
-
-    pf.to_csv(out_metadata_fd,index=False)
+    pfout.to_csv(out_metadata_fd,index=False)
     json.dump(all_log,out_error_fd)
 
     inp_metadata_fd.close();
     out_error_fd.close()
-    out_metadata_json_fd.close();
     out_metadata_fd.close();
 
 if __name__ == "__main__":
