@@ -95,25 +95,30 @@ def extract_macro_image(img):
           thumb_rgb = img.get_thumbnail((img_w,img_h)).convert("RGB"); 
     return macro_rgb,label_rgb,thumb_rgb;
 
-def write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,fname):
-    base_name = ntpath.basename(fname);
-    if not os.path.exists(fname):
-       os.makedirs(fname);
-    fname_pre = fname + "/" + os.path.splitext(base_name)[0];
+def write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,out_folder,file_uuid,pfout,file_idx):
+    local_path = file_uuid
+    full_path  = out_folder+"/"+local_path
+    if not os.path.exists(full_path):
+       os.makedirs(full_path);
 
-    out_metadata_json_fd = open(fname_pre+"-metadata.json","w");
+    fname_out = file_uuid+"-metadata.json";
+    out_metadata_json_fd = open(full_path+"/"+fname_out,"w");
     json.dump(img_json,out_metadata_json_fd);
     out_metadata_json_fd.close();
+    pfout.at[file_idx,"metadata_json"] = local_path+"/"+fname_out;
 
     if macro_rgb is not None:
-       fname_out = fname_pre + "-macro.jpg";
-       macro_rgb.save(fname_out);
+       fname_out = file_uuid+"-macro.jpg";
+       macro_rgb.save(full_path+"/"+fname_out);
+       pfout.at[file_idx,"macro_img"] = local_path+"/"+fname_out;
     if label_rgb is not None:
-       fname_out = fname_pre + "-label.jpg";
-       label_rgb.save(fname_out);
+       fname_out = file_uuid+"-label.jpg";
+       label_rgb.save(full_path+"/"+fname_out);
+       pfout.at[file_idx,"label_img"] = local_path+"/"+fname_out;
     if thumb_rgb is not None:
-       fname_out = fname_pre + "-thumb.jpg";
-       thumb_rgb.save(fname_out);
+       fname_out = file_uuid+"-thumb.jpg";
+       thumb_rgb.save(full_path+"/"+fname_out);
+       pfout.at[file_idx,"thumb_img"] = local_path+"/"+fname_out;
 
 parser = argparse.ArgumentParser(description="WSI metadata extractor.")
 parser.add_argument("--inpmeta",nargs="?",default="quip_manifest.csv",type=str,help="input manifest (metadata) file.")
@@ -178,36 +183,29 @@ def main(args):
         sys.exit(1);
  
     out_metadata_fd = open(out_folder + "/" + out_manifest_fname,"w");
-    cols  = ['file_uuid','slide_error_msg','slide_error_code'];
+    cols  = ['file_uuid','slide_error_msg','slide_error_code','label_img','macro_img','thumb_img','metadata_json'];
     pfout = pd.DataFrame(columns=cols);
+    pfout_idx = 0
     for file_idx in range(len(pfinp["path"])):
-        file_uuid = pfinp["file_uuid"][file_idx];
-        pfout.at[file_idx,"file_uuid"] = file_uuid;
-        pfout.at[file_idx,"slide_error_code"] = str(error_info["no_error"]["code"]);
-        pfout.at[file_idx,"slide_error_msg"]  = error_info["no_error"]["msg"]; 
-        if str(pfinp["manifest_error_code"][file_idx])!=str(error_info["no_error"]["code"]):
-            pfout.at[file_idx,"file_uuid"] = file_uuid;
-            pfout.at[file_idx,"slide_error_code"] = str(error_info["manifest_errors"]["code"]);
-            pfout.at[file_idx,"slide_error_msg"] = error_info["manifest_errors"]["msg"]; 
-            ierr["row_idx"] = file_idx
-            ierr["file_uuid"] = file_uuid
-            all_log["error"].append(ierr) 
-        else: # Extract metadata from image
+        if str(pfinp["manifest_error_code"][file_idx])==str(error_info["no_error"]["code"]): # Extract metadata from image
+            file_uuid = pfinp["file_uuid"][file_idx];
             fname = inp_folder+"/"+pfinp["path"][file_idx];
             img_json,img,ierr = openslide_metadata(fname);
             img_json["filename"] = file_uuid; 
+            pfout.at[pfout_idx,"file_uuid"] = file_uuid;
+            pfout.at[pfout_idx,"slide_error_code"] = str(ierr["code"]);
+            pfout.at[pfout_idx,"slide_error_msg"] = ierr["msg"];
             if str(ierr["code"])!=str(error_info["no_error"]["code"]):
                 ierr["row_idx"] = file_idx
                 ierr["file_uuid"] = file_uuid
                 all_log["error"].append(ierr) 
-                pfout.at[file_idx,"file_uuid"] = file_uuid;
-                pfout.at[file_idx,"slide_error_code"] = str(ierr["code"]);
-                pfout.at[file_idx,"slide_error_msg"] = ierr["msg"];
  
             # If file is OK, extract macro image and write it out
             if str(ierr["code"])==str(error_info["no_error"]["code"]):
                 macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
-                write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,out_folder+"/"+file_uuid);
+                write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,out_folder,file_uuid,pfout,pfout_idx);
+
+            pfout_idx = pfout_idx + 1; 
 
     pfout.to_csv(out_metadata_fd,index=False)
     json.dump(all_log,out_error_fd)
