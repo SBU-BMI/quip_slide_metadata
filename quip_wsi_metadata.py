@@ -246,8 +246,8 @@ def process_single_slide(args):
     all_log["error"] = []
     all_log["warning"] = [] 
     return_msg = {}
-    return_msg["status"] = all_log
-    return_msg["output"] = {} 
+    return_msg["status"] = json.dumps(all_log)
+    return_msg["output"] = json.dumps({})
 
     inp_json = {} 
     r_json = json.loads(inp_slide)
@@ -257,7 +257,7 @@ def process_single_slide(args):
  
 
     if check_input_params(pfinp,all_log) != 0:
-        return_msg["status"] = all_log
+        return_msg["status"] = json.dumps(all_log)
         print(return_msg)
         sys.exit(1);
  
@@ -284,8 +284,8 @@ def process_single_slide(args):
 
         pfout_idx = pfout_idx + 1; 
 
-    return_msg["status"] = all_log
-    return_msg["output"] = pfout.to_dict(orient='records')
+    return_msg["status"] = json.dumps(all_log)
+    return_msg["output"] = json.dumps(pfout.to_dict(orient='records'))
     print(return_msg)
 
 def main(args):
