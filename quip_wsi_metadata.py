@@ -106,6 +106,9 @@ def write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,out_folder,file_uui
     json.dump(img_json,out_metadata_json_fd);
     out_metadata_json_fd.close();
     pfout.at[file_idx,"metadata_json"] = local_path+"/"+fname_out;
+    pfout.at[file_idx,"macro_img"] = "";
+    pfout.at[file_idx,"label_img"] = "";
+    pfout.at[file_idx,"thumb_img"] = "";
 
     if macro_rgb is not None:
        fname_out = file_uuid+"-macro.jpg";
@@ -125,6 +128,7 @@ parser.add_argument("--inpmeta",nargs="?",default="quip_manifest.csv",type=str,h
 parser.add_argument("--errfile",nargs="?",default="quip_wsi_error_log.json",type=str,help="error log file.")
 parser.add_argument("--inpdir",nargs="?",default="/data/images",type=str,help="input folder.")
 parser.add_argument("--outdir",nargs="?",default="/data/output",type=str,help="output folder.")
+parser.add_argument("--slide",nargs="?",default="",type=str,help="one slide to process.")
 
 def check_input_errors(pf,all_log):
     ret_val = 0;
@@ -154,7 +158,23 @@ def check_input_errors(pf,all_log):
 
     return ret_val
 
-def main(args):
+def check_input_params(pf,all_log):
+    ret_val = 0;
+    if "path" not in pf.columns:
+        ierr = error_info["missing_columns"]
+        ierr["msg"] = ierr["msg"]+": "+"path"
+        all_log["error"].append(ierr)
+        ret_val = 1
+
+    if "file_uuid" not in pf.columns:
+        ierr = error_info["missing_columns"] 
+        ierr["msg"] = ierr["msg"]+": "+"file_uuid"
+        all_log["error"].append(ierr)
+        ret_val = 1
+            
+    return ret_val
+
+def process_manifest_file(args):
     inp_folder   = args.inpdir
     out_folder   = args.outdir
     inp_manifest_fname = args.inpmeta 
@@ -213,6 +233,69 @@ def main(args):
     inp_metadata_fd.close();
     out_error_fd.close()
     out_metadata_fd.close();
+
+def process_single_slide(args):
+    inp_folder   = args.inpdir
+    out_folder   = args.outdir
+    inp_manifest_fname = args.inpmeta 
+    out_manifest_fname = inp_manifest_fname
+    out_error_fname = args.errfile 
+    inp_slide = args.slide
+
+    all_log = {}
+    all_log["error"] = []
+    all_log["warning"] = [] 
+    return_msg = {}
+    return_msg["status"] = all_log
+    return_msg["output"] = {} 
+
+    inp_json = {} 
+    r_json = json.loads(inp_slide)
+    for item in r_json:
+        inp_json[item] = [r_json[item]]
+    pfinp = pd.DataFrame.from_dict(inp_json)
+ 
+
+    if check_input_params(pfinp,all_log) != 0:
+        json.dump(all_log,out_error_fd);
+        return_msg["status"] = all_log
+        print(return_msg)
+        sys.exit(1);
+ 
+    cols  = ['file_uuid','slide_error_msg','slide_error_code','label_img','macro_img','thumb_img','metadata_json'];
+    pfout = pd.DataFrame(columns=cols);
+    pfout_idx = 0
+    for file_idx in range(len(pfinp["path"])):
+        file_uuid = pfinp["file_uuid"][file_idx];
+        fname = inp_folder+"/"+pfinp["path"][file_idx];
+        img_json,img,ierr = openslide_metadata(fname);
+        img_json["filename"] = file_uuid; 
+        pfout.at[pfout_idx,"file_uuid"] = file_uuid;
+        pfout.at[pfout_idx,"slide_error_code"] = str(ierr["code"]);
+        pfout.at[pfout_idx,"slide_error_msg"] = ierr["msg"];
+        if str(ierr["code"])!=str(error_info["no_error"]["code"]):
+            ierr["row_idx"] = file_idx
+            ierr["file_uuid"] = file_uuid
+            all_log["error"].append(ierr) 
+ 
+        # If file is OK, extract macro image and write it out
+        if str(ierr["code"])==str(error_info["no_error"]["code"]):
+            macro_rgb,label_rgb,thumb_rgb = extract_macro_image(img);
+            write_macro_image(img_json,macro_rgb,label_rgb,thumb_rgb,out_folder,file_uuid,pfout,pfout_idx);
+
+        pfout_idx = pfout_idx + 1; 
+
+    return_msg["status"] = all_log
+    return_msg["output"] = pfout.to_dict(orient='records')
+    print(return_msg)
+
+def main(args):
+    if args.slide.strip()=="":
+        process_manifest_file(args)
+    else:
+        process_single_slide(args)
+
+    sys.exit(0)
 
 if __name__ == "__main__":
     args = parser.parse_args() 
