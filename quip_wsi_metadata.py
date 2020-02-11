@@ -257,7 +257,6 @@ def process_single_slide(args):
  
 
     if check_input_params(pfinp,all_log) != 0:
-        json.dump(all_log,out_error_fd);
         return_msg["status"] = all_log
         print(return_msg)
         sys.exit(1);
