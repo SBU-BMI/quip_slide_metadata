@@ -284,6 +284,14 @@ def process_single_slide(args):
 
         pfout_idx = pfout_idx + 1; 
 
+    one_row = pd.DataFrame(columns=pfout.columns)
+    for idx, row in pfout.iterrows():
+        one_row.loc[0] = pfout.loc[idx] 
+        file_uuid = pfout.at[idx,"file_uuid"] 
+        out_metadata_fd = open(out_folder+"/"+file_uuid+"_"+out_manifest_fname,mode="w")
+        one_row.to_csv(out_metadata_fd,index=False)
+        out_metadata_fd.close()
+
     return_msg["status"] = json.dumps(all_log)
     return_msg["output"] = json.dumps(pfout.to_dict(orient='records'))
     print(return_msg)
