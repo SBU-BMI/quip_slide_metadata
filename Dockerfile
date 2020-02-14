@@ -1,4 +1,4 @@
-FROM python:3.6.9-slim
+FROM python:3.7.5-slim
 MAINTAINER Tahsin Kurc
 
 RUN apt-get -q update && \
@@ -8,8 +8,8 @@ RUN apt-get -q update && \
 WORKDIR /root
 
 COPY . /root/.
-RUN chmod 0755 run_metadata
+RUN chmod 0755 slide_extract_metadata
 ENV PATH=.:$PATH:/root/
 
-CMD ["run_metadata"]
+CMD ["slide_extract_metadata"]
 

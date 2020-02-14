@@ -1,3 +1,0 @@
-#!/bin/bash
-
-python quip_wsi_metadata.py $@
